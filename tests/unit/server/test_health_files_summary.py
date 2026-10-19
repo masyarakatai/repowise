@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from repowise.core.analysis.health.signals import HISTORY_MIN_COMMITS as _HISTORY_MIN_COMMITS
 from repowise.core.persistence import crud
 from repowise.core.persistence.database import get_session
+from repowise.core.persistence.models import GitMetadata
 from tests.unit.server.conftest import create_test_repo
 
 _FULL_ONLY = {
@@ -171,7 +174,77 @@ async def test_summary_still_windows_and_filters_identically(client: AsyncClient
 async def test_an_unknown_fields_value_is_rejected(client: AsyncClient) -> None:
     """A typo must not silently fall through to the wide row and be paid for."""
     repo = await create_test_repo(client)
-    resp = await client.get(
-        f"/api/repos/{repo['id']}/health/files", params={"fields": "lean"}
-    )
+    resp = await client.get(f"/api/repos/{repo['id']}/health/files", params={"fields": "lean"})
     assert resp.status_code == 422
+
+
+async def _seed_history(app, repo_id: str, counts: dict[str, int]) -> None:
+    """Record git rows for the given ``{file_path: commit_count_total}``."""
+    async with get_session(app.state.session_factory) as session:
+        for path, total in counts.items():
+            session.add(
+                GitMetadata(repository_id=repo_id, file_path=path, commit_count_total=total)
+            )
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_short_history_is_marked_on_the_list_row(client: AsyncClient, app) -> None:
+    """``history: "short"`` when the file has too few commits to be judged.
+
+    The floor is the same one the MCP rows and the drawer use, and it is read
+    once for the page rather than per row.
+    """
+    repo = await create_test_repo(client)
+    await _seed(app, repo["id"])
+    await _seed_history(
+        app,
+        repo["id"],
+        {"src/f00.py": 2, "src/f01.py": _HISTORY_MIN_COMMITS},
+    )
+
+    body = (await client.get(f"/api/repos/{repo['id']}/health/files")).json()
+    rows = {f["file_path"]: f for f in body["files"]}
+
+    assert rows["src/f00.py"]["history"] == "short"
+    # The floor is inclusive on the "enough history" side.
+    assert "history" not in rows["src/f01.py"]
+    # No git row at all is not the same claim as "too short to judge".
+    assert "history" not in rows["src/f02.py"]
+
+
+@pytest.mark.asyncio
+async def test_history_only_files_are_not_marked_short(client: AsyncClient, app) -> None:
+    """A non-code file's row carries counts but no score, so it cannot qualify."""
+    repo = await create_test_repo(client)
+    await _seed(app, repo["id"])
+    await _seed_history(app, repo["id"], {"src/f00.py": 2})
+
+    async with get_session(app.state.session_factory) as session:
+        row = (
+            await session.execute(
+                select(GitMetadata).where(
+                    GitMetadata.repository_id == repo["id"],
+                    GitMetadata.file_path == "src/f00.py",
+                )
+            )
+        ).scalar_one()
+        row.history_only = True
+        await session.commit()
+
+    body = (await client.get(f"/api/repos/{repo['id']}/health/files")).json()
+    rows = {f["file_path"]: f for f in body["files"]}
+    assert "history" not in rows["src/f00.py"]
+
+
+@pytest.mark.asyncio
+async def test_summary_rows_omit_history_even_when_short(client: AsyncClient, app) -> None:
+    """The map does not read it, so the map must not pay for it."""
+    repo = await create_test_repo(client)
+    await _seed(app, repo["id"])
+    await _seed_history(app, repo["id"], {"src/f00.py": 2})
+
+    body = (
+        await client.get(f"/api/repos/{repo['id']}/health/files", params={"fields": "summary"})
+    ).json()
+    assert all("history" not in row for row in body["files"])

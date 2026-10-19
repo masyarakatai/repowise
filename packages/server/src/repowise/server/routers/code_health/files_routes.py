@@ -127,6 +127,9 @@ async def list_health_files(
             perf_counts[fnd.file_path] = perf_counts.get(fnd.file_path, 0) + 1
     lang_by_path = await crud.get_file_language_map(session, repo_id)
     perf_langs = supported_perf_languages()
+    # One read for the page, once, exactly as the MCP file lists do it. Omitted
+    # on summary rows, so the map's 2,000-row request does not pay for it.
+    short_history = set() if summary else await crud.get_short_history_paths(session, repo_id)
     return {
         "total": total,
         "offset": offset,
@@ -139,6 +142,7 @@ async def list_health_files(
                     perf_findings=perf_counts.get(m.file_path, 0),
                     perf_analyzed=lang_by_path.get(m.file_path) in perf_langs,
                     summary=summary,
+                    short_history=m.file_path in short_history,
                 ),
                 m,
             )

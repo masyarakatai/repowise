@@ -284,6 +284,13 @@ export interface HealthFileMetric {
    */
   structure_deduction?: number | null;
   history_deduction?: number | null;
+  /**
+   * `"short"` when the file has too few recorded commits for most history
+   * markers to fire, so its score — however high — is not evidence of a clean
+   * file, only of an untested history. Sent by the list, the drawer and the MCP
+   * rows; absent on older payloads and on `fields=summary` rows.
+   */
+  history?: "short" | null;
   unclamped_score?: number | null;
   /**
    * Test material, decided at ingestion. Drives the production/all scope

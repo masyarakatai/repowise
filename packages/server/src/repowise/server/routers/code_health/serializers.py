@@ -64,6 +64,7 @@ def _metric_to_dict(
     perf_findings: int = 0,
     perf_analyzed: bool | None = None,
     summary: bool = False,
+    short_history: bool = False,
 ) -> dict:
     """One file row. ``summary=True`` omits the keys only the table and drawer read.
 
@@ -115,6 +116,12 @@ def _metric_to_dict(
         history = _round_opt(getattr(m, "history_deduction", None))
         out["structure_deduction"] = structure
         out["history_deduction"] = history
+        # ``"short"``: too few recorded commits for most history markers to fire,
+        # so a high score here is not evidence of a clean file — the score is
+        # simply unstressed. Sent by the MCP rows and the drawer already; this
+        # is the list. Omitted when the history is long enough to count.
+        if short_history:
+            out["history"] = "short"
         out["unclamped_score"] = unclamped_score(structure, history)
         # Dominant-cause lead + pre-clamp magnitude (null when findings weren't
         # loaded for this row, or the file is clean). Additive; readers degrade.
