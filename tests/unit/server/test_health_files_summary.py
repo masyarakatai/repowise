@@ -17,12 +17,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
 
+from repowise.core.analysis.health.models import HealthFindingData, Severity
+from repowise.core.analysis.health.perf.opportunities import link_performance_findings
 from repowise.core.analysis.health.signals import HISTORY_MIN_COMMITS as _HISTORY_MIN_COMMITS
 from repowise.core.persistence import crud
 from repowise.core.persistence.database import get_session
 from repowise.core.persistence.models import GitMetadata, PerformanceOpportunity
-from repowise.core.analysis.health.models import HealthFindingData, Severity
-from repowise.core.analysis.health.perf.opportunities import link_performance_findings
 from tests.unit.server.conftest import create_test_repo
 
 _FULL_ONLY = {
